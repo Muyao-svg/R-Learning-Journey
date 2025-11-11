@@ -1,0 +1,75 @@
+---
+title: "cart correction"
+author: "Muyao GUO"
+date: "2025-10-11"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+rm(list=objects()); graphics.off()
+library(kernlab)
+data(spam)
+
+set.seed(12345)
+test = sample(1:length(spam$type),1536)
+train = -test
+train = spam[train, ] #3065 observations
+test = spam[test,] #1536 observations
+
+## --- RF ----------------------------------------------------------------------
+```{r data}
+library(kernlab)
+data(spam)
+dim(spam)
+str(spam)
+table(spam$type)
+
+
+hist(spam$edu)
+summary(spam$edu)
+boxplot(spam$edu~spam$type)
+boxplot(spam$capitalLong~spam$type)
+library(randomForest)
+set.seed(9170)
+test = sample(1:length(spam$type),1533)
+train = -test
+train = spam[train, ]
+test = spam[test,]
+fit.rf=randomForest(type~., data=train)
+fit.rf
+names(fit.rf)
+
+pred.rf=predict(fit.rf,type="class")
+mean(pred.rf!=train$type)
+# [1] 0.04796085 erreur OOB !
+pred.rf=predict(fit.rf,newdata=train,type="class")
+mean(pred.rf!=train$type)
+# [1] 0.003588907 erreur d'apprentissage
+
+# calibrartion de mtry et ntree
+plot(1:fit.rf$ntree,fit.rf$err.rate[,1],ylab="OOB",xlab ="nb of trees",type="l", col="blue")
+fit.bag=randomForest(type~., data=train, mtry=57)
+lines(1:fit.bag$ntree,fit.bag$err.rate[,1],col="red")
+legend(x=300,y=0.09,c("RF","Bagging"),text.col=c("blue","red"))
+# on conserve mtry=7 et ntree=500
+
+# importance des variables
+fit.rf=randomForest(type~., data=train, importance=T)
+varImpPlot(fit.rf,cex=.5)
+
+# courbe ROC
+s=seq(0,1,.01) #seuil de décision s
+score.rf=predict(fit.rf,newdata=test,type="prob")
+score.rf=score.rf[,2]
+absc=numeric(length(s));ordo=numeric(length(s))
+
+# Courbe Roc RF
+for (i in 1:length(s)){
+  ordo[i]=sum( score.rf>=s[i] & test$type=="spam")/sum(test$type=="spam")
+  absc[i]=sum( score.rf>=s[i] & test$type=="nonspam")/sum(test$type=="nonspam")
+}
+plot(absc,ordo,col="red",type="l",xlab="FPR",ylab="TPR")
+
+# à comparer avec les courbes ROC de l'arbre CART et de la régression logistique.
+```

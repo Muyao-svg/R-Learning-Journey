@@ -1,0 +1,156 @@
+---
+title: "Untitled"
+author: "Muyao GUO"
+date: "2025-09-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# 1个continue，3个discrete的variables
+
+Donnees_mammographic=read.table("mammographic.data",header=T)
+summary(Donnees_mammographic)
+# density里面有数据，1和4的数据太少了，可能会影响结果
+tumeur = within(Donnees_mammographic,{
+  age = age
+  shape = factor(shape)
+  margin = factor(margin)
+  density = factor(density)
+  Y = factor(Y)
+})
+summary(tumeur)
+library(rpart)
+library(rpart.plot)
+trpart=rpart(Y~., data = tumeur)
+plot(trpart)
+text(trpart)
+print(trpart) 
+#1) root 830 403 0 (0.5144578 0.4855422)    一共有830个结果，430个maligne，大多数是0
+#  2) margin=1 320  38 0（主要分类是0） (0.8812500 0.1187500) *    有320个结果，带“*”代表feuille。如果margin = 1，这里是a，进左分支。
+# 在树里面。符合条件进左分支，不符合进右分支
+# 15) age>=53.5 338  60（这是该节点里的“错误样本数”（misclassified cases）） 1 (0.1775148 0.8224852) * 这是节点内各类别的比例（概率分布）,0占比0.177
+
+# 另一种方法绘制tree
+rpart.plot(trpart)
+# 这里没有noeud pure，所以这个不是arbre maximal
+# --》  1.用正确的参数。 2.用cp。parametre de complecite
+
+
+help("rpart")
+help("rpart.control")  # cp = 0 得到arbre maximal。 在建树时 
+```
+不做任何剪枝，让树尽可能分裂下去，直到不能再分
+为什么 cp = 0 就会得到最大树？
+在 rpart 里，分裂时的规则是：
+只有当分裂能减少的不纯度 > cp × (总样本数)，才会被接受。
+如果你设置 cp = 0：
+分裂只要能带来哪怕一点点改进，就会发生。
+所以树会无限制生长，直到没有任何可能的分裂。
+得到的就是 arbre maximal。
+minsplit:在某个节点上，最少需要多少个样本才能尝试分裂
+
+## Arbre maximal
+
+```{r cars}
+tMax = rpart(Y~.,data=tumeur,control = rpart.control(cp = 0,minsplit = 3))
+rpart.plot(tMax)
+
+```
+
+
+
+## Vadidation croisee
+
+```{r pressure, echo=FALSE}
+printcp(tMax)
+```
+一个好的arbre由validation croisee确定。
+CP：分裂阈值（控制剪枝）。
+nsplit：分裂次数。树中已经进行的分裂次数, leaf_count=nsplit+1
+rel error：训练误差（归一化）。erreur d'apprentissage.根节点的 erreur d'apprentissage =        1,分裂越多，训练误差越小，最终在最大树（arbre maximal）上甚至可能接近 0（过拟合）。
+xerror：交叉验证误差（泛化能力）。qui estime erreur de generalisation 是U形图
+和 erreur d’apprentissage 的关系
+训练误差 (apprentissage)：在训练集上，总是可以通过增加复杂度降低。
+泛化误差 (généralisation)：在测试集上，随着模型复杂度的变化通常呈 U 型曲线：
+xstd：交叉验证误差的波动。交叉验证的ecart-type
+
+📌 一般做法：
+printcp() 看表，plotcp() 画图。
+找到 xerror 最小值。
+再用 1-SE 规则 选一个尽可能简单的树（在最小 xerror + xstd 内选择最小的 nsplit）。
+
+```{r }
+plotcp(tMax)
+
+```
+🔹 图里有什么？
+
+横轴：树的复杂度参数 cp（或等价地，分裂次数 nsplit）。
+越往左，树越复杂（cp 越小，分裂越多）。
+越往右，树越简单（cp 越大，分裂越少）。
+纵轴：交叉验证误差 (xerror)。
+曲线显示误差随树复杂度的变化趋势。
+点：交叉验证结果，每个点对应 printcp() 表里的一个行。
+竖线：误差条（xstd），显示交叉验证误差的标准差。
+
+🔹 用来干嘛？
+
+直观地找到 最优剪枝点：
+误差最小的点：泛化最好。一般来说选图中的最低点（minimum）作为CART
+1-SE 规则：选择在“最小误差 + 1 个标准差”以内的最简单的树。若minimul太远了，运用这个法则。虚线下的第一个
+
+图中的虚线：min(xerror + xstd),认为在虚线之下的variance est equivalent
+
+
+
+## Pruning
+```{r pruning}
+tcart = prune(tMax,cp=0.01116625)
+rpart.plot(tcart)
+
+tMax$cptable[which.max(tMax$cptable[,4]),1]
+which.min(tMax$cptable[,4])
+
+```
+
+3  0.01116625      2   0.40447 0.40943 0.028530
+
+## Prediction
+```{r prediction}
+rpart.plot(tcart)
+predict(tcart, newdata = data.frame(age = 50, shape = '3', margin = '2',density = '1'))
+```
+人工自己读一遍 age = 50, shape = 3, margin = 2,density = 1   --> Tumeur 0 benign: 0.32 这里的概率写的一直是Proba Y=1的概率！！ 错误的占32%
+Predict 结果：
+     0    1
+1 0.68 0.32
+
+
+## Performance l'arbre CART
+```{r logit}
+K=10
+ind_fold=sample(1:K,nrow(tumeur),replace=TRUE)
+ind_fold
+table(ind_fold)
+error=numeric(K)
+error
+for (j in 1:K)
+{
+ fit.glm=glm(Y~.,data=tumeur[ind_fold!=j,],family = binomial)       # 不属于ind_fold 第j个格子的数据集，作为data_train
+  y.glm=predict(fit.glm,newdata=tumeur[ind_fold==j,], type = "response")   # 属于ind_fold 第j个格子的数据集，作为data_test
+  y.test=tumeur[ind_fold==j,"Y"]
+  pred = rep(0,length(y.test))
+  pred[y.glm>0.5] = 1  
+  error[j]= mean(y.test != pred)
+}
+
+CVerror= mean(error) 
+CVerror   #  0.18922
+
+
+pred_Cart = predict(tcart,tumeur)
+pred_Cart[>0.5] = 1
+
+```
+
+

@@ -1,0 +1,151 @@
+---
+title: "TP5 Random Forest"
+author: "Muyao GUO"
+date: "2025-10-06"
+output: html_document
+---
+
+## 导入数据
+
+```{r data}
+library(kernlab)
+data(spam)
+dim(spam)
+str(spam)
+table(spam$type)
+
+
+hist(spam$edu)
+summary(spam$edu)
+boxplot(spam$edu~spam$type)
+boxplot(spam$capitalLong~spam$type)
+```
+"edu"这个词出现的次数很多，被认为不是spam  --> 这个variable可能是important，对于预测邮件是否为spam；
+"capitalLong" 这个词对于预测是否为spam可能不具有显著性。
+
+## Random Forest
+先做avegue预测，把所有的variable都带上
+```{r RandomForest}
+library(randomForest)
+set.seed(9170)
+test = sample(1:length(spam$type),1533)
+train = -test
+train = spam[train, ]
+test = spam[test,]
+
+table(train$type)/length(train$type)   # 它的分布与原始数据很接近，所以这样随机取样可以
+fit.rf = randomForest(type~., data = train)
+fit.rf
+names(fit.rf) 
+dim(fit.rf$err.rate)
+head(fit.rf$err.rate)
+```
+执行了500个B，57个变量开根号=7，也是得到模型里面的“No. of variables tried at each split: 7”
+OOB = 4.95%
+dim(fit.rf$err.rate)  --> 500 3
+
+
+
+## OOB
+OOB 可以理解为 erreur test，但不完全是。它可以被理解为validation croisee
+```{r OOB}
+predict_train = predict(fit.rf, train)
+length(predict_train)
+# Erreur apprentissage
+mean(train$type != predict_train)   # 0.003585398  error training
+
+
+predict_test = predict(fit.rf, test)
+length(predict_test)
+mean(test$type != predict_test)  # 0.05283757 error test
+# erreur OOB = 4.95%
+
+pred = predict(fit.rf)
+mean(train$type != pred)   # 0.04954368 = OOB 如果predict里面不指定“newdata”参数，默认用train，这样计算的就是errur OOB
+
+
+```
+error training = 0.003585398
+error test = 0.05283757
+error OOB = 0.04954368
+
+## Calibration
+```{r Calibration}
+head(fit.rf$err.rate)
+plot(fit.rf$err.rate[,1],
+     type = "l",
+     main = "OOB与树木数量的关系",
+     xlab = "树木的数量",
+     ylab = "OOB", lwd = 2)
+
+```
+
+```{r mtry}
+fit.rf = randomForest(type~., data = train,ntree = 2000)
+plot(1:fit.rf$ntree,fit.rf$err.rate)
+fit.rf.57 = randomForest(type~., data = train,ntree = 2000, mtry=57)
+lines(1:fit.rf.57$ntree,fit.rf.57$err.rate[,1])
+fit.rf.20 = randomForest(type~., data = train,ntree = 2000，mtry=20)
+fit.rf.3 = randomForest(type~., data = train,ntree = 2000，mtry=3)
+lines(1:fit.rf.20$ntree,fit.rf.20[,1],lwd=2, col="red")
+lines(1:fit.rf.3$ntree,fit.rf.3[,1],lwd=2, col="blue")
+
+
+```
+
+改变mtry后，发现OOB越来越高。所以默认的mtry是最好的.在判断ntree的时候要设置2000，不能设置500后看见线没有波动就不设置了。因为在500-2000之间可能还会有波动。
+
+## Importance
+```{r importance}
+fit.rf = randomForest(type~. ,data = train,importance = T)
+varImpPlot(fit.rf)
+
+
+```
+两种判断重要性的标准：
+Accuracy: taux mal clasee. 这个数字越大，variable plus significative. 选择一个seuil，超过这个seuil的就是重要的参数。
+Gini
+
+
+## Courbe ROC
+绘制ROC曲线，**要用“prob”**
+```{r corbe ROC}
+prob <- predict(fit.rf, newdata = test, type = "prob")[, "spam"]
+
+# 真值标签（1=spam, 0=nonspam）
+truth <- ifelse(test$type == "spam", 1, 0)
+
+# 取不同阈值
+thresholds <- seq(0, 1, by = 0.01)
+tp <- fp <- numeric(length(thresholds))
+
+for (i in seq_along(thresholds)) {
+  pred <- ifelse(prob >= thresholds[i], 1, 0)
+  tp[i] <- sum(pred == 1 & truth == 1) / sum(truth == 1)      # TPR
+  fp[i] <- sum(pred == 1 & truth == 0) / sum(truth == 0)      # FPR
+}
+
+# 画 ROC 曲线
+plot(fp, tp, type = "l", col = "blue", lwd = 2,
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     main = "ROC Curve (Manual Calculation)")
+abline(a = 0, b = 1, lty = 2, col = "gray")  # 对角线
+
+
+
+
+```
+## CART
+```{r CART}
+library(rpart)
+fit.cart = rpart(type~., data = spam, method = "class")
+rpart.plot(fit.cart)
+printcp(fit.cart)
+
+```
+在选择cp时，依旧选择最小的，但这样画出来的树很大很大！！！说明过度学习了sur-apprentissage
+这个时候遵循1-SE原则
+
+
+

@@ -1,0 +1,86 @@
+---
+title: "Lasso"
+author: "Muyao GUO"
+date: "2025-10-19"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r lasso}
+rm(list=objects())
+
+don=read.table("wdbc.data",sep=",",header=F)
+dim(don) # 569  32
+don=don[,-1]
+names(don)[1]="Y"
+don$Y=factor(don$Y,labels=c("0", "1")) # on peut garder "B" et M"
+head(don)
+summary(don$Y)
+# B   M 
+# 357 212
+
+boxplot(scale(don[,-1]))
+boxplot(don[,2]~don$Y)
+
+## Apprentissage/test
+set.seed(12345)
+test = sample(1:length(don$Y),200)
+train = -test
+train = don[train, ] #369 observations
+test = don[test,] 
+table(train$Y)
+
+# reg logistique 
+fit.glm=glm(Y~.,family=binomial,data=train);summary(fit.glm)
+# non convergence de l'algo
+
+# les 30 covariables représentent les moyennes, écart-types et max
+# de 10 features (voir wdbc.txt): il est probable qu'il y ait une
+# colinéarité des covariables, la design matrix n'est pas de plein rang
+
+# si on ne considère que les 10 premières covariables, pas de pb de convergence
+fit1=glm(Y~V3+V4+V5+V6+V7+V8+V9+V10+V11+V12,family=binomial,data=train);summary(fit1)
+
+
+## LASSO
+xtrain=model.matrix (Y~.,train )[,-1] 
+ytrain=train$Y
+xtest=model.matrix (Y~.,test )[,-1]
+ytest=test$Y
+
+library(glmnet)
+cv.out =cv.glmnet (xtrain,ytrain,alpha=1,family="binomial")
+plot(cv.out)
+bestlam =cv.out$lambda.min
+bestlam
+# [1] 0.00356702 #log(bestlam) : -5.636025
+fit.lasso=glmnet(xtrain,ytrain,family="binomial" ,alpha =1)
+# help("predict.glmnet")
+pred.lasso=predict(fit.lasso,s=bestlam,newx=xtest,type="response")
+
+predict(fit.lasso,type="coefficients",s=bestlam)
+# certains paramètres sont estimés à 0 --> sélection de variables
+
+length(predict(fit.lasso,type="nonzero",s=bestlam)[,1])
+# 13 paramètres estimés non nuls
+
+# classification 
+glm_pred=rep("0",length(test$Y))
+glm_pred[pred.lasso>0.5]="1"
+table(test$Y,glm_pred)
+# taux de mal classés sur données test
+mean(glm_pred!=test$Y)
+# [1] 0.025
+
+pred.lasso=predict(fit.lasso,s=bestlam,newx=xtest,type="class")
+mean(pred.lasso!=test$Y)
+# idem
+
+# package randomForest
+library(randomForest)
+fit.rf=randomForest(Y~.,data=train)
+# avec les paramètres par défaut, ntree=500 et mtry=5 (savoir dire pourquoi)
+y.rf=predict(fit.rf,newdata=test,type="class")
+mean(y.rf!=test$Y)
+# [1] 0.04
+```

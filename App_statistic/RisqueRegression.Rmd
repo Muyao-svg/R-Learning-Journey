@@ -1,0 +1,98 @@
+---
+title: "Risque Regression"
+author: "Muyao GUO"
+date: "2025-10-07"
+output: html_document
+---
+```{r data}
+library(MASS)
+data(birthwt)
+summary(birthwt)
+
+birthwt = within(birthwt,{
+  race = factor(race, labels=c("white", "black", "other"))
+  smoke = factor(smoke,labels=c("No", "Yes"))
+  ptl = factor(ptl > 0)
+  ht= factor(ht>0)
+  ui = factor(ui,labels=c("No", "Yes"))
+  ftv = factor(ftv)
+  levels(ftv)[-(1:2)] = "2+"
+})
+
+birthwt=birthwt[,-1]
+summary(birthwt)
+attach(birthwt)
+
+```
+
+# régression linéaire avec toutes les covariables
+```{r reglineaire}
+reg =lm(bwt~.,data=birthwt)
+summary(reg)
+
+# Prédiction
+#    age lwt  race smoke   ptl    ht ui ftv  
+#     23  94  other  Yes FALSE FALSE No   0 
+
+Y0=data.frame(age=23, lwt=94, race="other", smoke="Yes",ptl="FALSE", ht="FALSE",ui="No",ftv="0")
+predict(reg,newdata=Y0)
+# 2596.384
+
+RSS=sum((bwt-predict(reg))^2) 
+RSE=sqrt(RSS/(189-11))  # 646.1 idem sortie R
+TSS=sum((bwt-mean(bwt))^2)
+R2=1-RSS/TSS # 0.2568224 idem sortie R
+
+# erreur d'apprentissage
+MSE_train = mean((bwt-predict(reg))^2) 
+RMSE_train=sqrt(MSE_train)
+RMSE_train
+# [1] 626.9739
+
+## fonction de risque MSE
+mse=function(y,ypred) round((mean((y-ypred)^2)),digits=2)
+# plus interprétable, dans l'échalle de la variable à prédire:
+rmse=function(y,ypred) sqrt(mse(y,ypred))
+
+### Apprentissage / Test
+
+set.seed(12345)  # calcul reproductible
+
+test = sample(1:length(birthwt$bwt),60)
+train = -test
+train = birthwt[train, ] # 129 observations
+test = birthwt[test,] 
+
+reg.train=lm(bwt~.,data=train)
+y.pred=predict(reg.train, newdata=test)
+rmse(test$bwt,y.pred)
+# [1] 639.07
+
+```
+
+
+### Validation croisée
+```{r validationCroisee}
+K=5
+set.seed(123)
+ind_fold=sample(1:K,nrow(birthwt),replace=TRUE)
+table(ind_fold)
+# 1  2  3  4  5 
+# 42 38 36 32 41 
+
+error=numeric()
+for (j in 1:K)
+{
+  fit.lm=lm(bwt~.,data=birthwt[ind_fold!=j,])
+  y.lm=predict(fit.lm,newdata=birthwt[ind_fold==j,])
+  y.test=birthwt[ind_fold==j,"bwt"]
+  error[j]=rmse(y.test,y.lm)
+}
+
+cv.error=mean(error)
+cv.error
+# [1] 672.0053
+
+sd(error)
+# [1] 12.08386
+```

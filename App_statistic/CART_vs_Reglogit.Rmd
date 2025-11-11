@@ -1,0 +1,304 @@
+---
+title: 'Devoir: Comparez les perfomances des méthodes CART et régression logistique '
+author: "Muyao GUO"
+date: "2025-10-03"
+output:
+  html_document: default
+  word_document: default
+---
+## Objectif:
+本报告用两种方法（CART and Regression Logistic）讨论新生婴儿的重量（小于2.5kg与大于2.5kg）的影响因素，包含**年龄，mother's weight in pounds at last menstrual period，种族，是否吸烟，number of previous premature labours，history of hypertension，presence of uterine irritability，number of physician visits during the first trimester**
+并评估这两种方法的performance。
+
+## 数据来源
+The birthwt data frame has 189 rows and 10 columns. The data were collected at Baystate Medical Center, Springfield, Mass during 1986. 再处理数据后，本研究保留了以下变量：
+This data frame contains the following columns:
+low: indicator of birth weight less than 2.5 kg.
+age: mother's age in years.
+lwt: mother's weight in pounds at last menstrual period.
+race: mother's race (1 = white, 2 = black, 3 = other).
+smoke: smoking status during pregnancy.
+ptd: 是否有过 previous premature labours
+ht: history of hypertension.
+ui: presence of uterine irritability.
+ftv: number of physician visits during the first trimester.
+
+```{r setup, echo = FALSE }
+library(MASS)
+data(birthwt)
+#?birthwt
+#head(birthwt)
+#dim(birthwt)
+#summary(birthwt)
+
+bwt <- with(birthwt, {
+race <- factor(race, labels = c("white", "black", "other"))
+ptd <- factor(ptl > 0)
+ftv <- factor(ftv)
+levels(ftv)[-(1:2)] <- "2+"
+data.frame(low = factor(low), age, lwt, race, smoke = (smoke > 0),
+           ptd, ht = (ht > 0), ui = (ui > 0), ftv)
+})
+summary(bwt)
+```
+
+## 1.Regression Logistic 方法的评估
+在本次研究中，选择logistic模型来对low变量（出生体重过低）进行研究。其主要原因有以下几点：首先变量low是一个二元变量（0=正常，1=出生体重小于2.5kg），因此需要一种需要能处理二项分布的响应方法。logistic 回归通过 logit 链接函数，将自变量的线性组合与事件发生的概率联系起来，能够很好地刻画“母体特征对低出生体重风险的影响”。其次，logistic 回归的模型系数具有直观的解释意义：回归系数可以转化为优势比（odds ratio），直接反映某一因素对发生低出生体重的相对风险。最后，相较于其他方法，logistic 回归在医学和流行病学研究中被广泛应用，其结果容易解释且便于与既有研究进行比较。
+其数学表达方法为：
+  log(P(low = 1 | X)/(1-P(low = 1 | X))) = beta0 + beta_age.Xage + beta_lwt.......(**填完整**)
+  ==> logit(P(low=1∣X))=β0​+j=1∑p​βj​Xj​
+p表示变量数量
+
+```{r logistic, echo=FALSE}
+fit = glm(low~., data = bwt, family = binomial)
+summary(fit)
+
+```
+拟合的结果表明lwt,raceblack,ptdTRUE,htTRUE对新生婴儿体重有显著影响。而且NULL deviance = 234.67 (df=189-1 = 188) 大于 Residual deviance = 195.48 (df = 189 - 11 = 178),表明当前包含全部变量的拟合模型相比null模型，误差更小。
+
+## 1.1 Erreur test
+我们对逻辑回归模型进行error test。选择70%(129个样本)的数据作为training模型，30% （60个样本）的数据用来测试模型的准确度。
+
+```{r errtest, echo=FALSE}
+set.seed(9170)
+test = sample(1:length(bwt$low),60)
+train = -test
+train = bwt[train, ] #129 observations
+test = bwt[test,] 
+
+
+fit.train=glm(low~.,data=train,family="binomial")
+probs=predict(fit.train, newdata=test,type="response")
+
+# classifieur de Bayes
+y.pred=rep(0,dim(test)[1])
+y.pred[probs>0.5]=1
+
+# ou as.numeric(predict(fit.train,newdata=test,type="response")>0.5)
+
+test.error=mean(y.pred!=test$low)
+test.error
+## [1] 0.2666667
+# [1] 0.2666667
+ 
+table(y.pred,test$low) # matrice de confusion
+##       
+## y.pred  0  1
+##      0 37 12
+##      1  4  7
+# y.pred  0  1
+#      0 37 12
+#      1  4  7
+
+sum( probs>=0.5 & test$low==0) # 4 faux positifs
+## [1] 4
+
+```
+得到的taux error=0.35，其中有6个faux positif
+
+## Courbe ROC
+ROC 曲线（Receiver Operating Characteristic curve） 的原因，核心在于它能 全面、阈值无关地评估分类模型的判别能力。
+
+```{r courb, echo=FALSE}
+fit.train=glm(low~.,data=train,family="binomial")
+probs=predict(fit.train,newdata=test,type="response")
+
+#Initialisation :
+s=seq(0,1,.01)
+absc=numeric(length(s));ordo=numeric(length(s))
+
+# Courbe Roc reg logistique
+for (i in 1:length(s)){
+  ordo[i]=sum( probs>=s[i] & test$low==1)/sum(test$low==1)
+  absc[i]=sum( probs>=s[i] & test$low==0)/sum(test$low==0)
+}
+
+plot(absc,ordo,col="red",type="l",xlab="FPR=1-spécificité",ylab="TPR=sensibilité")
+abline(0,1,lty=2)
+
+
+```
+这张 ROC 曲线说明该逻辑回国分类模型）具备一定但有限的判别能力。
+模型表现好于随机分类（对角线），但尚未达到较高的区分水平。
+
+## 1.3 Validation Croisee 评估regression logistic的性能
+为了比较 CART 与 régression logistique 的性能，我们选择了交叉验证 (validation croisée) 结合预测指标（如 accuracy），因为这些指标能够公平地评估不同类型模型在新数据上的预测能力。
+我们使用 10 折交叉验证 (10-fold cross-validation) 来评估 logistic 回归模型在 birthwt 数据集上的预测性能。具体方法是：将数据随机划分为 10 个子集，每次用 9 个子集训练模型，用剩余的 1 个子集测试模型，循环 10 次并计算平均分类错误率。结果显示，模型的平均交叉验证错误率为 31.2%，即模型在新数据上的平均预测准确率约为 68.8%。
+这一结果表明，尽管逻辑回归能够一定程度上区分低出生体重与正常体重，但其预测性能仍存在一定的误差。
+CVerror=0.3123
+Accuracy=1−CVerror≈0.688
+```{r logitValisation, echo=FALSE}
+K=10
+ind_fold=sample(1:K,nrow(bwt),replace=TRUE)
+ind_fold
+table(ind_fold)
+error=numeric(K)
+error
+for (j in 1:K)
+{
+  fit.glm=glm(low~.,data=bwt[ind_fold!=j,],family = binomial)       # 不属于ind_fold 第j个格子的数据集，作为data_train
+  y.glm=predict(fit.glm,newdata=bwt[ind_fold==j,], type = "response")   # 属于ind_fold 第j个格子的数据集，作为data_test
+  y.test=bwt[ind_fold==j,"low"]
+  pred = rep(0,length(y.test))
+  pred[y.glm>0.5] = 1   # 把 y.glm 中大于 0.5 的那些位置，在 pred 向量里对应的位置赋值为 1
+  #y.glm > 0.5 会生成一个逻辑向量（TRUE/FALSE），长度与 y.glm 相同。
+  #用这个逻辑向量作为下标：pred[ y.glm > 0.5 ]，会选出 pred 里对应为 TRUE 的那些元素。
+  #= 1 则把这些元素改成 1。其余位置保持原值（通常你先把 pred 初始化为 0）。
+  error[j]= mean(y.test != pred)   # 在这里不急着开根号
+}
+
+CVerror= mean(error) 
+CVerror   
+```
+
+## 2 CART
+接下来用CART方法对同样的问题进行研究。
+CART 通过递归地选择最优的划分变量和分裂点，把样本空间划分为若干子区域，并在每个区域内预测“low=1”的概率，最后将观测值分配到概率较大的类别。
+换句话说：
+该模型根据母亲的年龄、体重、种族、吸烟习惯等因素，逐步划分数据集，建立一棵分类树，用以预测婴儿是否为低出生体重。
+
+**数学表达式**
+首先本研究中设置了complexity parameter cp = 0,minsplit = 3(最少需要3个样本才能尝试分裂)得到了一个arbre maximal.
+```{r cartinfini, echo=FALSE}
+library(rpart)
+library(rpart.plot)
+set.seed(9170)
+
+fit.cart.infini = rpart(low~., data = bwt, control = rpart.control(cp = 0,minsplit = 3))
+rpart.plot(fit.cart.infini)
+printcp(fit.cart.infini)
+plotcp(fit.cart.infini)
+```
+
+由于样本数量太少，模型拟合出来的cp值随erreur generation并没有呈现期待中的“U形”，即在inf，xerreur应该最大，然后逐渐减小，到某个cp值后又有缓慢上升。
+因此这里根据1-SE规则判断，选取了虚线下的第一个点作为cp=0.042值用于pruning。虚线指的是最小的erreur generalisation 与方差的和（min xerreur + xstd）。（为什么选这个？？？？）
+
+## 2.1 Pruning
+```{r pruning, echo=FALSE}
+#fit.cart.infini$cptable[which.max(fit.cart.infini$cptable[,4]),1]
+#which.min(fit.cart.infini$cptable[,4])
+pcart = prune(fit.cart.infini,cp =0.029)
+rpart.plot(pcart)
+
+
+```
+CART 模型揭示了影响低出生体重的主要因素：
+母亲有早产史（ptd = TRUE） 是最强的风险指标，低体重概率高达 60%。
+在无早产史的女性中，母体体重（lwt） 和 年龄（age） 是关键因素。体重低于 106 磅的年轻母亲风险显著增加。
+特别是 年轻且体重轻且产前检查少（ftv ≤ 1） 的母亲，几乎全部生出低体重婴儿。
+CART 的结果具有较好的可解释性，揭示了多因素交互作用（如年龄 × 体重 × 产检次数）。
+
+
+## 2.2 Performance evaluation
+为了了解CART方法的performance，与逻辑回归方法类似，将数据分成训练集（169个样本）以及test（40个样本）。用训练集产生的树木来预测test的结果，并检查有多少比例的结果被正确预测了。
+
+```{r train, echo=FALSE}
+#length(bwt$low)
+set.seed(0719)
+test=sample(length(bwt$low),60)
+train = -test
+
+test = bwt[test,]
+train = bwt[train,]
+
+cart_train = rpart(low~., data = train, control = rpart.control(cp = 0,minsplit = 3))
+rpart.plot(cart_train)
+printcp(cart_train)
+plotcp(cart_train)
+
+
+```
+同样的，由于样本数据太少，导师cp-xerror图不能呈现完美的形状。因此根据1-SE原则，选择了虚线以下的第一个cp作为pruning的cp = 0.029
+
+```{r pruning2, echo=FALSE}
+cart_train = prune(cart_train,cp =0.029)
+rpart.plot(cart_train)
+```
+
+
+## 2.3 Prediction
+在得到CART后，用test数据进行prediction（为什么？？？）。以得到预测数据与实际数据。通过比较二者是否一致，可以得到CART的taux erreur
+```{r prediction, echo=FALSE}
+library(caret)
+pred_prob <- predict(cart_train, newdata = test, type = "prob")
+#head(pred_prob)
+pred_class <- predict(cart_train, newdata = test, type = "class")
+#head(pred_class)
+
+confusionMatrix(pred_class, test$low, positive = "1")
+
+```
+
+
+预测的准确率是0.6667
+```{r vcCart, echo=FALSE}
+library(rpart)
+
+set.seed(0719)
+K <- 10
+folds <- sample(rep(1:K, length.out = nrow(birthwt)))
+
+errors <- numeric(K)
+
+for (k in 1:K) {
+  train <- bwt[folds != k, ]
+  test  <- bwt[folds == k, ]
+  
+  # 训练树（可包含剪枝）
+  tree <- rpart(low ~ ., data = train, method = "class",
+                control = rpart.control(cp = 0.01))
+  
+  # 预测类别
+  pred <- predict(tree, test, type = "class")
+  
+  # 计算错误率
+  errors[k] <- mean(pred != test$low)
+}
+
+# 平均错误率
+mean_error <- mean(errors)
+cat("Erreur moyenne de validation croisée (10 plis) :", round(mean_error * 100, 2), "%\n")
+
+
+
+```
+
+```{r roc, echo=FALSE}
+#library(pROC)
+#roc_cart <- roc(test$low, pred_prob[,2])
+#plot(roc_cart, col="red", main="ROC - CART model",legacy.axes = TRUE)
+#Initialisation :
+s=seq(0,1,.01)
+absc=numeric(length(s));ordo=numeric(length(s))
+
+# Courbe Roc reg logistique
+for (i in 1:length(s)){
+  ordo[i]=sum( probs>=s[i] & test$low==1)/sum(test$low==1)
+  absc[i]=sum( probs>=s[i] & test$low==0)/sum(test$low==0)
+}
+
+plot(absc,ordo,col="red",type="l",xlab="FPR=1-spécificité",ylab="TPR=sensibilité",main="Courbes ROC des deux modèles")
+abline(0,1,lty=2)
+#Initialisation :
+
+absc1=numeric(length(s));ordo1=numeric(length(s))
+
+# Courbe Roc CART
+for (i in 1:length(s)){
+  ordo1[i]=sum( pred_prob>=s[i] & test$low==1)/sum(test$low==1)
+  absc1[i]=sum( pred_prob>=s[i] & test$low==0)/sum(test$low==0)
+}
+
+lines(absc1,ordo1,col="blue",type="l")
+abline(0,1,lty=2)
+legend("bottomright",
+       legend=c("Régression Logistique", "CART"),
+       col=c("red", "blue"), lwd=2, lty=1, bty="n")
+
+```
+The red line lies only slightly above the diagonal, indicating a limited discriminative ability between normal and low-birth-weight cases.
+This moderate performance suggests that while CART captures some structure in the data (notably maternal weight and preterm history), the model remains relatively simple and may not fully generalize to unseen data.
+
+
+## Conclusion
+
