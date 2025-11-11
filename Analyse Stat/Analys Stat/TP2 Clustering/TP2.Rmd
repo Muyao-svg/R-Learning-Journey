@@ -1,0 +1,41 @@
+---
+title: "TP2"
+author: "Muyao GUO"
+date: "2025-11-05"
+output: html_document
+---
+## Time-course RNA-sequencing of human induced regulatory T cell (iTreg) differentiation
+这里要用raw data，因为normaliser的data不能用于loi poisson模型;
+所以如果直接拿 TPM、FPKM 等比例型数据来聚类，可能出现：高表达样本被压缩；样本间技术噪音放大；方差估计偏差 → 聚类不稳定
+
+Comparing the gene expression in activated CD4+ cells and iTreg differentiated cells in human. 
+10 time points, 3 biological replicates for each time point.
+
+Explication of RNA-seq data:
+  RNA-Seq and proteomics data from human iTregs and controls. 
+  Thp:Unstimulated naïve CD4⁺ T cells.
+  Th0: Mock stimulation control. ‘Mock’ control cells received no further compounds.(假刺激)
+  iTreg: Induced Treg with TGF-β or others.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

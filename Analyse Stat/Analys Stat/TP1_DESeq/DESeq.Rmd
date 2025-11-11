@@ -1,0 +1,131 @@
+---
+title: "EMT"
+author: "Muyao GUO"
+date: "2025-11-03"
+output: html_document
+---
+Problematique: Reperer s'il present une expression RNA significant entre day0 et day7
+Methologie: 1.Pretraitement des donees
+            2.Definition des hypothese a tester
+            3.Choix du modele
+            4.Estimation des parametres et tests
+            5.Correction des p-value pour les tests multiples
+## 1.Pretraitement des donees            
+```{r pretaitement}
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#  install.packages("BiocManager")
+#BiocManager::install("DESeq2")
+library(DESeq2)
+data = read.table("../countsEMT.txt")
+dim(data)
+summary(data)
+# Car il presente les genes faiblement exprime, ce qu'il faut enlever.
+data=data[-which(rowSums(data)<=10),]
+dim(data)
+summary(data)
+# 5619 rows a ete enlever
+
+boxplot(log(data+1),main="boxplot of row data")
+
+# Si la data ~ loi Poisson
+vectMean = apply(data,1,mean)
+vectVar = apply(data,1,var)
+plot(log(vectMean+1),log(vectVar+1))
+abline(0,1,col="red")
+# E(Yij) != Var(Yij)  --> Pas loi Poisson
+```
+
+
+## 2.Definition des hypothese a tester
+Pour un gene j,on souhaute comparer le niveau d'expression de ce gene dans deux conditions experimentales
+Condition A: Day0   vs.    Condition B: Day7
+H0j: u_Aj = u_Bj    vs.    H1j: u_Aj != u_Bj
+ou u_Aj et u_Bj represente le niveau d'expression moyen du gene j dans la condition A et B, respectivement.
+
+## 3.Choix du modele
+On suppose que le modele suis une loi Negative Binomial:
+Kij ~ NB(u_ij,a_j)
+u_ij = s_1*q_ij
+log2(q_ij) = xj*beta_j
+
+ou reads Kij pour gene j, sample i sont module par une loi Negative Binimial avec fitted moyenne u_ij et une gene-specifique dispersion a_j;
+u_ij est compose par un sample-specifique size factor s_i et un parametre q_ij (proportionnel a vrai concentration des fragments pour sample i expectee);
+beta_j represente log2 FC pour gene j pour chaque column de matrix X
+```{r modele}
+help("DESeq")
+cnts <- data
+cond <- factor(c(rep("Day_0",3), rep("Day_7",3)))
+
+# object construction 构建一个专门用于 DESeq分析的数据对象
+dds <- DESeqDataSetFromMatrix(cnts, DataFrame(cond), ~ cond)
+
+# standard analysis
+dds <- DESeq(dds)  # 会根据NB模型计算并估计参数
+res <- results(dds) # log2FC,pvalue，padj...
+summary(res)
+
+# log2 FC
+mcols(res,use.names = T) #用来查看或提取一个对象（比如 dds 或 res）中，每个基因对应的附加信息。
+table(res$pvalue<0.05)
+hist(res$pvalue)
+table(res$padj<0.05)
+hist(res$padj)
+
+normCounts <- counts(dds, normalized = TRUE)
+```
+
+## 4.Estimation des parametres et tests
+```{r estimation}
+# Estimation la size factor
+dds_1<- estimateSizeFactors(dds,type="ratio")
+sizeFactors(dds_1)
+# Pour certaine genes ont 0
+dds_2<-estimateSizeFactors(dds,type="poscounts")
+sizeFactors(dds_2)
+
+# Estimation de dispersion
+dds_disp<-estimateDispersions(dds)
+head(dispersions(dds_disp))
+plotDispEsts(dds_disp)
+
+
+# moderated log2 fold changes
+resultsNames(dds)
+resLFC <- lfcShrink(dds, coef=2, type="apeglm")
+# BiocManager::install("apeglm")
+# help("lfShrink")
+
+# an alternate analysis: likelihood ratio test
+ddsLRT <- DESeq(dds, test="LRT", reduced= ~ 1)
+resLRT <- results(ddsLRT)
+summary(resLRT)
+```
+Le graphique de dispersion montre une relation négative claire entre l'expression moyenne et la dispersion, ce qui indique un bon ajustement du modèle. Les gènes faiblement exprimés présentent une plus grande variabilité, tandis que les gènes fortement exprimés sont plus stables. Les dispersions ajustées et réduites (rouge et bleu) confirment que DESeq2 a réussi à saisir la tendance générale.
+
+## 5.Correction des p-value pour les tests multiples
+
+```{r Correction pvalue}
+#subset() 从矩阵或行中筛选想要的子集
+results <- results(dds, pAdjustMethod = "BH", alpha = 0.05)
+summary(results)
+
+# Extraiter les resultats pvalue<0.05
+res_sig <- subset(results,padj<0.05)
+summary(res_sig)
+head(res_sig)
+```
+
+## PCA
+```{r PCA}
+help("rlog")  # this function transforms the count data to the log2 scale
+dds_rlog = rlog(dds,blind=FALSE)  # blind=FALSE should be used for transforming data for downstream analysis
+vsd <- vst(dds,nsub = 500)  # variance stabilizing transformation (VST)
+plotPCA(vsd,intgroup = "cond",ntop=500)
+help("plotPCA")
+plotPCA(dds_rlog,intgroup = "cond",ntop=500)
+
+```
+L’analyse en composantes principales (PCA) montre une séparation nette entre les échantillons du Day 0 et du Day 7.
+Les trois réplicats biologiques de chaque condition sont très proches les uns des autres, indiquant une bonne reproductibilité expérimentale.
+La première composante principale (PC1) explique 99 % de la variance totale, ce qui suggère que la principale source de variation dans les données provient du changement de condition temporelle.
+Ainsi, les profils d’expression génique entre Day 0 et Day 7 sont clairement distincts, justifiant la poursuite d’une analyse de l’expression différentielle avec DESeq2.
